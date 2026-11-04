@@ -1,79 +1,49 @@
-<h1 align="center">Telegram Music Bot</h1>
+
+<h1 align="center">Street View Timestamp Finder</h1>
+
+
 
 <p align="center">
-<img alt="Telegram Music Bo" src="http://imgfz.com/i/gQdONA3.png" title="Telegram Music Bot">
-</p>
-<br>
-
-Hola, ¿estás cansado de ser un pobre diablo y no tener un mango? Bueno, yo también. 
-
-Con este simple bot pueden reproducir la música en segundo plano y con el teléfono bloqueado. También permite crear o armar playlists y reproducirlas sin límites. Así que, si te querés ahorrar unos buenos mangos en suscripciones como Spotify, YouTube o cualquiera de esos servicios basura, acá tenés una opción rápida y fácil.
-
-<br>
-
-<p align="center">
-<img alt="Telegram Music Bo" src="http://imgfz.com/i/NbyX5o7.png" title="Telegram Music Bo">
+<img alt="Street View Timestamp" src="http://imgfz.com/i/XtH0bsP.png" title="StreetView-Timestamp-Finder">
 </p>
 <br>
 
 
-## Cómo funciona
 
-El bot busca las canciones directamente en YouTube y te envía el audio para escucharlo desde el reproductor integrado de Telegram.
 
-1. Buscá una canción desde el menú, escribiendo el artista y el título en el chat o usando `/buscar artista canción`.
-2. El bot te muestra hasta seis resultados.
-3. Tocá el que quieras: la descarga y el envío comienzan directamente, sin confirmaciones adicionales.
-4. Cuando llegue el audio, tocá **Play** y listo: podés seguir escuchando mientras usás otras aplicaciones o tenés el teléfono bloqueado.
 
-También podés guardar canciones en favoritos, crear playlists y añadir o quitar temas desde los botones del bot.
+Programa simple de consola en Python que consulta la fecha de captura de panorámicas de Google Street View en cualquier país. Muestra el país, la localidad y las coordenadas. Cuando hay una hora de captura disponible, también muestra el día de la semana y la hora local en formato de 24 horas. Si la ubicación es aproximada, lo indica en el resultado.
 
-Como las búsquedas se realizan en YouTube, no dependés de un catálogo propio del bot. La disponibilidad de cada canción depende de las restricciones del video original.
-
-Aunque está pensado para música, también permite obtener el audio de otros videos públicos. En ese caso, recibís el audio, no el video completo.
+<p align="center">
+<img alt="Street View Timestamp" src="http://imgfz.com/i/f7z2XcN.png" title="StreetView-Timestamp-Finder">
+</p>
+<br>
 
 ## Instalación y uso
 
-El instalador está preparado para un **VPS con Debian 12 o Debian 13**. Configura las dependencias y deja el bot funcionando como un servicio que se inicia automáticamente con el servidor.
+Requiere Python 3.10 o posterior. Abrí PowerShell en la carpeta del proyecto y ejecutá:
 
-Necesitás:
 
-- Un VPS con Debian 12/13 y acceso como administrador.
-- Un bot creado desde **@BotFather** y su Token.
-- El **ChatID** de tu chat privado con el bot.
-
-Antes de instalarlo, abrí tu bot en Telegram y tocá **Iniciar** para que pueda enviarte mensajes.
-
-Descargá el proyecto y ejecutá el instalador:
-
-```bash
-sudo apt update
-sudo apt install -y git
-
-git clone https://github.com/FacuSecX/MusicBotTelegram.git
-cd MusicBotTelegram
-
-sudo bash instalarbotmusica.sh
+```powershell
+py -m pip install -r requirements.txt
+py .\GoogleMapsHourFinder.py -v "URL_COMPLETA_DE_GOOGLE_MAPS"
 ```
 
-Durante la instalación te pedirá el nombre del servicio, el Token y el ChatID. También permite configurar una salida de red mediante WARP para las consultas de audio a YouTube.
+Si omitís `-v`, el programa te pide que pegues el enlace. Detecta la zona horaria por coordenadas. Podés elegir otra con `--zona Europe/Paris`.
 
-El instalador verifica los datos del bot. Si son incorrectos, vuelve a pedirlos sin descartar lo que ya instaló. Las credenciales se guardan en un archivo `.env` separado del código.
+La consulta en vivo predeterminada se hace directamente a Google y no pide clave. Si ya tenés una marca UTC, podés usar `--marca "2025-10-09T12:41:44Z"`. La opción `--metadatos` consulta la fecha publicada con una clave de Street View Static API.
 
-Una vez terminado, entrá al chat del bot y escribí `/menu` o directamente el nombre de una canción. No hace falta mantener tu PC encendida: el bot funciona desde el VPS.
+## Ejemplo de salida
 
-### Comandos principales
+<p align="center">
+<img alt="Street View Timestamp" src="http://imgfz.com/i/lfN2Sbd.png" title="StreetView-Timestamp-Finder">
+</p>
+<br>
 
-| Comando | Función |
-|---|---|
-| `/menu` | Muestra el menú principal. |
-| `/ocultarmenu` | Oculta el menú. |
-| `/buscar artista canción` | Busca canciones en YouTube. También podés escribir la búsqueda directamente en el chat. |
-| `/crearplaylist Nombre` | Crea una playlist. |
-| `/playlists` | Muestra tus playlists. |
-| `/favorites` | Muestra tus favoritos. |
-| `/detener` | Cierra la playlist desde el bot y limpia sus mensajes del chat. |
-| `/limpiarchat` | Retira mensajes recientes y conserva tus favoritos y playlists. También acepta `/limpiar` y `/clearchat`. |
-| `/help` | Muestra la ayuda. |
+## Cómo obtiene la hora
 
-#
+El programa extrae el identificador de la panorámica y consulta sus metadatos. Usa el mes de captura como punto de partida para una búsqueda binaria con el filtro `photoAge`. Si encuentra una coincidencia, acota la marca UTC a un intervalo de hasta dos segundos y la convierte a la hora local del lugar.
+
+La búsqueda predeterminada cubre un radio de 30 metros, por lo que el resultado puede corresponder a otro fotograma. Para exigir que coincida el identificador de la panorámica, usá `--verificar-pano`.
+
+La consulta se realiza mediante `SingleImageSearch`, un servicio interno de Google que puede cambiar. Podés configurar otro servicio compatible con `--endpoint`.

@@ -427,9 +427,9 @@ def main():
         if args.demo:
             demo()
             return 0
+        show_banner()
         raw = args.url if args.url is not None else args.entrada
         if raw is None:
-            show_banner()
             prompt = "Copia el link de Google Maps:"
             if supports_color():
                 prompt = f"\033[92m{prompt}\033[0m"

@@ -7,6 +7,7 @@
 """GoogleMapsHourFinder. Consultá la fecha de una panorámica de Street View."""
 import argparse
 from datetime import datetime, timedelta, timezone
+from functools import lru_cache
 import getpass
 import json
 import os
@@ -29,7 +30,39 @@ STREET_VIEW_SEARCH = (
 WEEKDAYS = ("Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo")
 MONTHS = ("enero", "febrero", "marzo", "abril", "mayo", "junio",
           "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre")
-ZONE_LABELS = {"Europe/Paris": "Francia", "America/Argentina/Cordoba": "Córdoba, Argentina"}
+
+
+def iana_zone_territory(key):
+    from importlib.resources import files
+
+    try:
+        zone_table = files("tzdata.zoneinfo").joinpath("zone.tab").read_text(encoding="utf-8")
+    except (ImportError, OSError):
+        return None
+    for line in zone_table.splitlines():
+        if not line or line.startswith("#"):
+            continue
+        country, _, zone, *_ = line.split("\t")
+        if zone == key:
+            return country
+    return None
+
+
+def zone_label(key):
+    try:
+        from babel import Locale
+        from babel.core import get_global
+    except ImportError:
+        return key
+
+    territories = get_global("zone_territories")
+    canonical = get_global("zone_aliases").get(key, key)
+    territory = territories.get(key) or territories.get(canonical)
+    if not territory:
+        territory = iana_zone_territory(key)
+    if not territory or territory == "ZZ":
+        return key
+    return Locale.parse("es").territories.get(territory, key)
 
 
 def format_local_capture(capture, zone):
@@ -44,7 +77,7 @@ def format_local_capture(capture, zone):
         gmt += f":{minutes:02d}"
     if seconds:
         gmt += f":{seconds:02d}"
-    label = ZONE_LABELS.get(zone.key, zone.key)
+    label = zone_label(zone.key)
     return f"{day} {local.day} de {month} de {local.year} {local:%H:%M:%S} (Horario {label} {gmt})"
 
 
@@ -91,7 +124,7 @@ def show_banner():
 
 
 def show_fields(location, date_value):
-    country, city, coordinates = location_fields(location)
+    country, city, coordinates, _ = location_fields(location)
     color = supports_color()
     fields = (("País", country), ("Ciudad", city), ("Coordenadas", coordinates), ("Fecha", date_value))
     width = max(len(label) + 2 + len(value) for label, value in fields)
@@ -213,55 +246,133 @@ def read_location_json(endpoint, params):
         return None
 
 
-def french_commune(lat, lng):
-    communes = read_location_json("https://geo.api.gouv.fr/communes",
-                                  {"lat": lat, "lon": lng, "fields": "nom,code"})
-    if isinstance(communes, list) and len(communes) == 1 and isinstance(communes[0], dict):
-        commune = communes[0]
-        name = commune.get("nom")
-        if isinstance(name, str) and name:
-            return "París" if commune.get("code") == "75056" else name
+SETTLEMENT_TYPES = {"city", "town", "village", "hamlet"}
+
+
+def settlement_name(place):
+    if place.get("osm_key") == "place" and place.get("osm_value") in SETTLEMENT_TYPES:
+        return place_text(place, "name")
     return None
 
 
-def argentine_municipality(lat, lng):
-    data = read_location_json("https://apis.datos.gob.ar/georef/api/v2.0/ubicacion",
-                              {"lat": lat, "lon": lng})
-    if not isinstance(data, dict) or not isinstance(data.get("ubicacion"), dict):
-        return False, None
-    location = data["ubicacion"]
-    province = location.get("provincia")
-    country_confirmed = isinstance(province, dict) and bool(province.get("id"))
-    municipality = location.get("gobierno_local") or location.get("municipio")
-    name = municipality.get("nombre") if isinstance(municipality, dict) else None
-    return country_confirmed, name if isinstance(name, str) and name else None
+def city_name(place):
+    name = place_text(place, "city")
+    if name and (name.casefold().endswith(" ward") or name.casefold().startswith("ward ")):
+        return None
+    return name
+
+
+def select_city(places):
+    closest = places[0]
+    country = country_code_for(closest)
+    city = city_name(closest)
+    district = place_text(closest, "district")
+    county = place_text(closest, "county")
+    if city and district and any(
+        country_code_for(place) == country
+        and city_name(place) == city
+        and settlement_name(place) == district
+        for place in places
+    ):
+        return district
+    if city or settlement_name(closest):
+        return city or settlement_name(closest)
+
+    # Only use city-level evidence. A district is a matching clue, not a city name.
+    candidates = {
+        city_name(place) or settlement_name(place)
+        for place in places[1:]
+        if country_code_for(place) == country
+        and (not district or place_text(place, "district") == district)
+        and (district or not county or place_text(place, "county") == county)
+    } - {None, ""}
+    return candidates.pop() if len(candidates) == 1 else None
+
+
+def display_city(name):
+    if not name:
+        return "Sin determinar"
+    return name.removeprefix("Ciudad Autónoma de ").removesuffix(" Municipal Unit") or name
+
+
+@lru_cache(maxsize=1)
+def country_index():
+    from countrycheck import CountryCheck
+
+    return CountryCheck()
+
+
+def country_at_point(lat, lng):
+    try:
+        result = country_index().check(lng, lat)
+    except (ImportError, OSError, ValueError):
+        return None
+    # The bundled grid is coarse near borders. Use only wholly interior cells.
+    return result.iso2 if result.kind == "country" else None
+
+
+def place_text(place, key):
+    value = place.get(key)
+    return value.strip() if isinstance(value, str) and value.isprintable() and value.strip() else None
+
+
+def country_code_for(place):
+    code = place_text(place, "countrycode")
+    return code.upper() if code and re.fullmatch(r"[A-Za-z]{2}", code) else None
+
+
+def select_country(places, boundary_code):
+    codes = {country_code_for(place) for place in places} - {None}
+    if boundary_code:
+        code = boundary_code
+    elif len(codes) == 1:
+        code = next(iter(codes))
+    else:
+        return None, []
+    return code, [place for place in places if country_code_for(place) == code]
+
+
+def country_label(code, fallback):
+    if not code:
+        return "Sin determinar"
+    try:
+        from babel import Locale
+    except ImportError:
+        return fallback or code
+    return Locale.parse("es").territories.get(code, fallback or code)
 
 
 def location_fields(location):
-    country = city = "Sin determinar"
-    if location:
-        try:
-            import reverse_geocode
-            from babel import Locale
-        except ImportError:
-            print("Para detectar país y ciudad, ejecutá py -m pip install -r requirements.txt.")
-        else:
-            lat, lng = map(float, location.split(","))
-            if -90 <= lat <= 90 and -180 <= lng <= 180:
-                place = reverse_geocode.get((lat, lng))
-                country_code = place["country_code"]
-                country = Locale.parse("es").territories.get(country_code, place["country"])
-                confirmed, municipality = False, None
-                if country_code == "FR":
-                    municipality = french_commune(lat, lng)
-                    confirmed = bool(municipality)
-                elif country_code == "AR":
-                    confirmed, municipality = argentine_municipality(lat, lng)
-                if not confirmed:
-                    country += " (aproximado)"
-                city = municipality or f"{place['city']} (localidad cercana)"
-    coordinates = location.replace(",", ", ") if location else "Sin determinar"
-    return country, city, coordinates
+    unknown = "Sin determinar"
+    coordinates = location.replace(",", ", ") if location else unknown
+    empty = (unknown, unknown, coordinates, False)
+    if not location:
+        return empty
+    try:
+        lat, lng = map(float, location.split(","))
+    except ValueError:
+        return empty
+    if not (-90 <= lat <= 90 and -180 <= lng <= 180):
+        return empty
+
+    endpoint = os.environ.get("STREETVIEW_GEOCODER_URL") or "https://photon.komoot.io/reverse"
+    data = read_location_json(endpoint, {"lat": lat, "lon": lng, "limit": 12, "radius": 1, "lang": "en"})
+    features = data.get("features") if isinstance(data, dict) else None
+    if not isinstance(features, list):
+        features = []
+    places = [
+        feature["properties"] for feature in features
+        if isinstance(feature, dict) and isinstance(feature.get("properties"), dict)
+    ]
+    code, local_places = select_country(places, country_at_point(lat, lng))
+    place = local_places[0] if local_places else {}
+    country = country_label(code, place_text(place, "country"))
+    city = select_city(local_places) if local_places else None
+    if code == "GB" and place_text(place, "county") == "Greater London":
+        city = "London"
+    elif code == "CD" and place_text(place, "state") == "Kinshasa" and city and not settlement_name(place):
+        city = "Kinshasa"
+    return country, display_city(city), coordinates, bool(code)
 
 
 def resolve_zone(zone_name, location):
@@ -406,7 +517,7 @@ def main():
     parser = argparse.ArgumentParser(
         description=__doc__,
         epilog='Ejemplo: py .\\GoogleMapsHourFinder.py -v "URL_COMPLETA_DE_GOOGLE_MAPS". '
-               'Ejecutalo sin URL para pegarla cuando te la pida. Usá --demo para probar sin conexión.',
+               'Ejecutalo sin URL para pegarla cuando te la pida. Usá --demo para probar sin conexión. Datos de ubicación: © colaboradores de OpenStreetMap. https://www.openstreetmap.org/copyright',
     )
     parser.add_argument("entrada", nargs="?", help="URL larga, pano ID de 22 caracteres o latitud,longitud")
     parser.add_argument("-v", "--url", metavar="LINK", help="URL de Street View entre comillas")

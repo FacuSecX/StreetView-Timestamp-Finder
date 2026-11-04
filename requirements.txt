@@ -1,4 +1,4 @@
 timezonefinder==6.5.9
 tzdata
-reverse-geocode==1.6.6
 Babel
+countrycheck==0.1.0

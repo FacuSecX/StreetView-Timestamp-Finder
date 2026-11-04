@@ -4,7 +4,7 @@
 
 
 <p align="center">
-<img alt="Street View Timestamp" src="http://imgfz.com/i/XtH0bsP.png" title="Server Security Monitor v3.2">
+<img alt="Street View Timestamp" src="http://imgfz.com/i/XtH0bsP.png" title="StreetView-Timestamp-Finder">
 </p>
 <br>
 

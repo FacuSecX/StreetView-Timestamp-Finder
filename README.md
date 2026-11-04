@@ -15,7 +15,7 @@
 Programa simple de consola en Python que consulta la fecha de captura de panorámicas de Google Street View en cualquier país. Muestra el país, la localidad y las coordenadas. Cuando hay una hora de captura disponible, también muestra el día de la semana y la hora local en formato de 24 horas. Si la ubicación es aproximada, lo indica en el resultado.
 
 <p align="center">
-<img alt="Street View Timestamp" src="http://imgfz.com/i/f7z2XcN.png" title="Server Security Monitor v3.2">
+<img alt="Street View Timestamp" src="http://imgfz.com/i/f7z2XcN.png" title="StreetView-Timestamp-Finder">
 </p>
 <br>
 
@@ -36,7 +36,7 @@ La consulta en vivo predeterminada se hace directamente a Google y no pide clave
 ## Ejemplo de salida
 
 <p align="center">
-<img alt="Street View Timestamp" src="http://imgfz.com/i/lfN2Sbd.png" title="Server Security Monitor v3.2">
+<img alt="Street View Timestamp" src="http://imgfz.com/i/lfN2Sbd.png" title="StreetView-Timestamp-Finder">
 </p>
 <br>
 
